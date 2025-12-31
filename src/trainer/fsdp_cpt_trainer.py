@@ -59,7 +59,7 @@ from verl.utils.torch_functional import get_cosine_schedule_with_warmup
 from verl.utils.tracking import Tracking
 
 from src.diffllm.gen_utils import q_sample
-from src.trainer.sft_dataset import SFTDataset, TokenizedSFTDataset
+from src.trainer.cpt_dataset import CPTDataset, TokenizedCPTDataset
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
@@ -340,7 +340,7 @@ class StreamingCollateFunction(OptimizedCollateFunction):
         }
 
 
-class FSDPSFTTrainer(object):
+class FSDPCPTTrainer(object):
 
     def __init__(
         self, config, device_mesh: DeviceMesh, ulysses_device_mesh: DeviceMesh
@@ -392,13 +392,16 @@ class FSDPSFTTrainer(object):
             )
             print(f"Using remove padding: {self.use_remove_padding}")
 
+        print('start building dataloader')
         self._build_dataloader()
         # build model
+        print('start building model')
         self._build_model_optimizer()
 
         # TODO: add checkpoint manager
         if self.device_mesh.get_rank() == 0:
             print(self.config)
+
 
     def _normalize_config_bsz(self):
         dp_size = (
@@ -425,27 +428,25 @@ class FSDPSFTTrainer(object):
         config = self.config
         # build dataset
         if config.data.tokenized:
-            self.train_dataset = TokenizedSFTDataset(
+            self.train_dataset = TokenizedCPTDataset(
                 parquet_files=config.data.train_files,
             )
-            self.val_dataset = TokenizedSFTDataset(
+            self.val_dataset = TokenizedCPTDataset(
                 parquet_files=config.data.val_files,
             )
         else:
-            self.train_dataset = SFTDataset(
+            self.train_dataset = CPTDataset(
                 parquet_files=config.data.train_files,
                 tokenizer=self.tokenizer,
-                prompt_key=config.data.prompt_key,
-                response_key=config.data.response_key,
+                text_key=config.data.text_key,
                 max_length=config.data.max_length,
                 truncation=config.data.truncation,
                 pad_token_id=config.data.pad_token_id,
             )
-            self.val_dataset = SFTDataset(
+            self.val_dataset = CPTDataset(
                 parquet_files=config.data.val_files,
                 tokenizer=self.tokenizer,
-                prompt_key=config.data.prompt_key,
-                response_key=config.data.response_key,
+                text_key=config.data.text_key,
                 max_length=config.data.max_length,
                 truncation=config.data.truncation,
                 pad_token_id=config.data.pad_token_id,
@@ -650,6 +651,10 @@ class FSDPSFTTrainer(object):
 
         self.steps_per_epoch = len(self.train_dataloader)
         self.total_steps = self.steps_per_epoch * self.config.trainer.total_epochs
+
+        if self.config.trainer.total_training_steps is not None:
+            self.total_steps = self.config.trainer.total_training_steps
+            self.steps_per_epoch = math.ceil(self.total_steps / self.config.trainer.total_epochs)
 
         if self.device_mesh.get_rank() == 0:
             print(
@@ -1137,7 +1142,7 @@ class FSDPSFTTrainer(object):
             self.save_checkpoint(step=global_step)
 
 
-@hydra.main(config_path="config", config_name="sft_trainer", version_base=None)
+@hydra.main(config_path="config", config_name="cpt_trainer", version_base=None)
 def main(config):
     local_rank, rank, world_size = initialize_global_process_group()
 
@@ -1150,7 +1155,7 @@ def main(config):
         mesh_shape=(dp_size, config.ulysses_sequence_parallel_size),
         mesh_dim_names=("dp", "sp"),
     )
-    trainer = FSDPSFTTrainer(
+    trainer = FSDPCPTTrainer(
         config=config, device_mesh=device_mesh, ulysses_device_mesh=ulysses_device_mesh
     )
     trainer.fit()

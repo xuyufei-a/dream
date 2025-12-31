@@ -6,23 +6,27 @@ from verl.utils.hdfs_io import copy, makedirs
 
 
 def separate_prompt_and_response(row):
-    messages = row["messages"]
-    assert messages[-1]["role"] == "assistant"
-    row["prompt"] = messages[:-1]
-    row["response"] = messages[-1]["content"]
+    # messages = row["messages"]
+    # assert messages[-1]["role"] == "assistant"
+    # row["prompt"] = messages[:-1]
+    # row["response"] = messages[-1]["content"]
+    # return row
+    row["prompt"] = [{"role": "user", "content": row["messages"]}]
     return row
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default="datasets/tulu3")
+    parser.add_argument("--local_dir", default="datasets/gsm8k")
     parser.add_argument("--hdfs_dir", default=None)
     parser.add_argument("--max_length", type=int, default=2048)
     parser.add_argument("--tokenizer", default="Qwen/Qwen2.5-7B-Instruct")
 
     args = parser.parse_args()
 
-    dataset = datasets.load_dataset("allenai/tulu-3-sft-mixture", split="train").select(range(10000))
+    dataset = datasets.load_dataset("openai/gsm8k", 'main', split='test').select(range(1000))
+    dataset = dataset.rename_column("question", "messages")
+    dataset = dataset.rename_column("answer", "response")
     dataset = dataset.map(separate_prompt_and_response)
     dataset = dataset.remove_columns(["messages"])
 
@@ -45,7 +49,7 @@ if __name__ == "__main__":
 
     local_dir = args.local_dir
     hdfs_dir = args.hdfs_dir
-    dataset.to_parquet(os.path.join(local_dir, "train.parquet"))
+    dataset.to_parquet(os.path.join(local_dir, "test.parquet"))
 
     if hdfs_dir is not None:
         makedirs(hdfs_dir)
