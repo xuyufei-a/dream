@@ -60,6 +60,7 @@ from verl.utils.tracking import Tracking
 
 from src.diffllm.gen_utils import q_sample
 from src.trainer.cpt_dataset import CPTDataset, TokenizedCPTDataset
+from src.trainer.AR_utils import create_temporal_mask_wrapper
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
@@ -743,6 +744,8 @@ class FSDPCPTTrainer(object):
             else self.tokenizer.pad_token_id
         )
 
+        mask_free = self.config.model.mask_free
+
         # Context manager for sequence parallel if needed
         context = self.sharding_manager if use_sp else nullcontext()
         with context:
@@ -766,11 +769,22 @@ class FSDPCPTTrainer(object):
                     )
                     loss_mask = loss_mask_nonflatten.reshape(-1)
 
-                    # 2d -> 4d conversion for attention_mask
-                    attention_mask = torch.logical_and(
-                        attention_mask.unsqueeze(1).unsqueeze(-2),
-                        attention_mask.unsqueeze(1).unsqueeze(-1),
-                    )
+                    if not mask_free:
+                        # 2d -> 4d conversion for attention_mask
+                        attention_mask = torch.logical_and(
+                            attention_mask.unsqueeze(1).unsqueeze(-2),
+                            attention_mask.unsqueeze(1).unsqueeze(-1),
+                        )
+                    else:
+                        attention_mask = create_temporal_mask_wrapper(
+                            input_ids=masked_input_ids,
+                            attention_mask=attention_mask,
+                            mask_token_id=self.tokenizer.mask_token_id,
+                            enable_c2c_mask=True,
+                            enable_c2m_mask=False, 
+                            enable_m2m_mask=False,
+                            block_length=1
+                        )
 
                     output = self.fsdp_model(
                         input_ids=masked_input_ids,
