@@ -3,7 +3,8 @@ data:
   perbatch_cutoff_type: random
   collate_fn_type: optimized
   train_batch_size: 256
-  micro_batch_size_per_gpu: 4  # this is also val batch size
+  micro_batch_size_per_gpu: 4
+  val_batch_size_per_gpu: 4
   train_files: ~/data/gsm8k/train.parquet
   val_files: ~/data/gsm8k/test.parquet
   tokenized: False
@@ -29,7 +30,6 @@ model:
   use_liger: False
   attention_dropout: 0.0
   mask_free: False
-  
 optim:
   lr: 1e-5
   betas: [0.9, 0.95]

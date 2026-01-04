@@ -1,6 +1,7 @@
 import time
 import torch
 from transformers import AutoModel, AutoTokenizer
+import argparse
 
 def select_device():
     if torch.cuda.is_available():
@@ -11,7 +12,6 @@ def select_device():
     return "cpu"
 
 # --- Model Loading ---
-model_path = "Dream-org/Dream-v0-Instruct-7B"
 device = select_device()
 dtype_by_device = {
     "cuda": torch.bfloat16,
@@ -21,7 +21,10 @@ dtype_by_device = {
 dtype = dtype_by_device[device]
 print(f"Using device: {device} (dtype={dtype})")
 
-model_path = "Dream-org/Dream-v0-Instruct-7B"
+parser = argparse.ArgumentParser()
+parser.add_argument("--model_path", type=str, default="Dream-org/Dream-v0-Instruct-7B", help="Path to the pretrained model")
+args = parser.parse_args()
+model_path = args.model_path
 
 model = AutoModel.from_pretrained(model_path, torch_dtype=dtype, trust_remote_code=True)
 tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)

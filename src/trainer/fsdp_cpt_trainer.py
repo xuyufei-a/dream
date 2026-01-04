@@ -514,7 +514,7 @@ class FSDPCPTTrainer(object):
         )
         self.val_dataloader = DataLoader(
             dataset=self.val_dataset,
-            batch_size=config.data.micro_batch_size_per_gpu,
+            batch_size=config.data.val_batch_size_per_gpu,
             sampler=self.val_sampler,
             num_workers=8,
             pin_memory=True,
@@ -1105,7 +1105,7 @@ class FSDPCPTTrainer(object):
                     for val_data in self.val_dataloader:
                         val_data = TensorDict(
                             val_data,
-                            batch_size=self.config.data.micro_batch_size_per_gpu,
+                            batch_size=self.config.data.val_batch_size_per_gpu,
                         ).cuda()
                         val_loss = self.validation_step(val_data)
                         val_losses.append(val_loss)
@@ -1125,7 +1125,7 @@ class FSDPCPTTrainer(object):
                     for val_data in self.val_dataloader:
                         val_data = TensorDict(
                             val_data,
-                            batch_size=self.config.data.micro_batch_size_per_gpu,
+                            batch_size=self.config.data.val_batch_size_per_gpu,
                         ).cuda()
                         val_loss = self.validation_step(val_data)
                         val_losses.append(val_loss)
@@ -1142,7 +1142,7 @@ class FSDPCPTTrainer(object):
             val_losses = []
             for data in self.val_dataloader:
                 data = TensorDict(
-                    data, batch_size=self.config.data.micro_batch_size_per_gpu
+                    data, batch_size=self.config.data.val_batch_size_per_gpu,
                 ).cuda()
                 val_loss = self.validation_step(data)
                 val_losses.append(val_loss)

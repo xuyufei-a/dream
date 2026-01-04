@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -J base                   # 作业名为 test
-#SBATCH -o dream_cpt_baseline_1B.out
+#SBATCH -o dream_cpt_baseline.out
 #SBATCH -p IAI_SLURM_HGX
 #SBATCH --qos=16gpu-hgx               # 作业使用的 QoS 为 lv0b
 #SBATCH -N 1                      # 作业申请 1 个节点
@@ -20,17 +20,18 @@ set -x
 # fi
 
 nproc_per_node=4
-save_path=outputs
+save_path=outputs/dream_cpt_baseline
+exp_name=$(basename $save_path)
 
-# Shift the arguments so $@ refers to the rest
-shift 2
+# # Shift the arguments so $@ refers to the rest
+# shift 2
 
 export WANDB_API_KEY=752ba61bc4d8eab9818676ef82b13bc57f4d3105
 torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     -m src.trainer.fsdp_cpt_trainer \
     diffusion.time_reweighting=linear \
-    data.train_files=../datasets/opencoder-annealing-corpus/train_data.parquet \
-    data.val_files=../datasets/opencoder-annealing-corpus/eval_data.parquet \
+    data.train_files=../datasets/opencoder-annealing-corpus-1M-samples/train_data.parquet \
+    data.val_files=../datasets/opencoder-annealing-corpus-1M-samples/eval_data.parquet \
     data.max_length=1024 \
     data.truncation=right \
     optim.lr=2e-6 \
@@ -40,12 +41,12 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     model.partial_pretrain=../huggingface/Dream-Coder-v0-Base-7B \
     model.trust_remote_code=True \
     model.enable_gradient_checkpointing=True \
-    trainer.default_local_dir=test_exp \
     trainer.project_name=diff-verl-pt \
-    trainer.experiment_name=test_exp \
+    trainer.experiment_name=$exp_name \
     trainer.logger=['console','wandb'] \
+    trainer.default_local_dir=$save_path \
     trainer.total_epochs=1 \
-    trainer.total_training_steps=4000 \
+    trainer.total_training_steps=100 \
     2>&1
     # trainer.save_checkpoint_steps=1 \
     # data.perbatch_cutoff_type=random_with_input_pad \
