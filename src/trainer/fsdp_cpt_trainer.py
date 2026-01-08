@@ -55,7 +55,7 @@ from verl.utils.fsdp_utils import (
     init_fn,
 )
 from verl.utils.model import compute_position_id_with_mask
-from verl.utils.torch_functional import get_cosine_schedule_with_warmup
+from verl.utils.torch_functional import get_cosine_schedule_with_warmup, get_wsd_schedule_with_warmup
 from verl.utils.tracking import Tracking
 
 from src.diffllm.gen_utils import q_sample
@@ -423,7 +423,7 @@ class FSDPCPTTrainer(object):
             self.config.data.train_batch_size
             % self.config.data.micro_batch_size_per_gpu
             == 0
-        )
+        ), f"train batch size {self.config.train_batch_size} is not divisible by micro batch size {self.config.data.micro_batch_size_per_gpu}"
 
     def _build_dataloader(self):
         config = self.config
@@ -663,12 +663,23 @@ class FSDPCPTTrainer(object):
             )
 
         num_warmup_steps = int(self.total_steps * self.config.optim.warmup_steps_ratio)
-
-        self.lr_scheduler = get_cosine_schedule_with_warmup(
-            optimizer=self.optimizer,
-            num_warmup_steps=num_warmup_steps,
-            num_training_steps=self.total_steps,
-        )
+        
+        if self.config.optim.lr_scheduler == 'cosine':
+            self.lr_scheduler = get_cosine_schedule_with_warmup(
+                optimizer=self.optimizer,
+                num_warmup_steps=num_warmup_steps,
+                num_training_steps=self.total_steps,
+            )
+        elif self.config.optim.lr_scheduler == 'wsd':
+            self.lr_scheduler = get_wsd_schedule_with_warmup(
+                optimizer=self.optimizer,
+                num_warmup_steps=num_warmup_steps,
+                num_training_steps=self.total_steps,
+                min_lr_ratio=self.config.optim.wsd_min_lr_ratio,
+                stable_ratio=self.config.optim.wsd_stable_steps_ratio,
+            )
+        else:
+            raise ValueError(f"Unknown lr_scheduler {self.config.optim.lr_scheduler}")
 
     def _load_from_checkpoint(self, checkpoint_path):
         """Initialize training state from checkpoint."""
@@ -953,8 +964,8 @@ class FSDPCPTTrainer(object):
             self.tokenizer.save_pretrained(path)
 
             # Save optimizer and training state
-            torch.save(optim_state, os.path.join(path, "optimizer_state.pt"))
-            torch.save(training_state, os.path.join(path, "training_state.pt"))
+            # torch.save(optim_state, os.path.join(path, "optimizer_state.pt"))
+            # torch.save(training_state, os.path.join(path, "training_state.pt"))
 
             # Copy to HDFS if configured
             if self.config.trainer.default_hdfs_dir:

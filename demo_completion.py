@@ -23,6 +23,7 @@ print(f"Using device: {device} (dtype={dtype})")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_path", type=str, default="Dream-org/Dream-v0-Instruct-7B", help="Path to the pretrained model")
+parser.add_argument("--max_new_tokens", type=int, default=512, help="Maximum number of new tokens to generate")
 args = parser.parse_args()
 model_path = args.model_path
 
@@ -31,12 +32,16 @@ tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 model = model.to(device).eval()
 
 # messages = [
-#     {"role": "user", "content": "Janet's ducks lay 16 eggs per day. She eats three for breakfast every morning and bakes muffins for her friends every day with four. She sells the remainder at the farmers' market daily for $2 per fresh duck egg. How much in dollars does she make every day at the farmers' market?"},
+#     {"role": "user", "content": "hello"},
 # ]
-# Trimmed-down prompt to keep the compute light.
+
 messages = [
-    {"role": "user", "content": "Please write a Python class that implements a PyTorch trainer capable of training a model on a toy dataset."}
+    {"role": "user", "content": "Janet's ducks lay 16 eggs per day. She eats three for breakfast every morning and bakes muffins for her friends every day with four. She sells the remainder at the farmers' market daily for $2 per fresh duck egg. How much in dollars does she make every day at the farmers' market?"},
 ]
+# Trimmed-down prompt to keep the compute light.
+# messages = [
+#     {"role": "user", "content": "Please write a Python class that implements a PyTorch trainer capable of training a model on a toy dataset."}
+# ]
 inputs = tokenizer.apply_chat_template(
     messages, return_tensors="pt", return_dict=True, add_generation_prompt=True
 )
@@ -46,10 +51,10 @@ attention_mask = inputs.attention_mask.to(device)
 output = model.diffusion_generate(
     input_ids,
     attention_mask=attention_mask,
-    max_new_tokens=512,
+    max_new_tokens=args.max_new_tokens,
     output_history=True,
     return_dict_in_generate=True,
-    steps=512,
+    steps=args.max_new_tokens,
     temperature=0.2,
     top_p=0.95,
     alg="entropy",

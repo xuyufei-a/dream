@@ -36,6 +36,9 @@ optim:
   weight_decay: 0.01
   warmup_steps_ratio: 0.1
   clip_grad: 1.0
+  lr_scheduler: cosine
+  wsd_stable_steps_ratio: 0.9
+  wsd_min_lr_ratio: 0.1
 ulysses_sequence_parallel_size: 1
 use_remove_padding: False
 trainer:
@@ -49,7 +52,7 @@ trainer:
   total_training_steps: null
   logger: ['console']
   seed: 1
-  save_checkpoint_steps: 1000
+  save_checkpoint_steps: 200
 diffusion:
   token_reweighting: false  # use focal loss for token-level reweighting
   alpha: 0.25  # for focal loss
