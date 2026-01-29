@@ -19,6 +19,8 @@ TODO(zhangchi.usc1992)
 """
 
 import os
+import os
+os.environ["HF_HOME"] = "/data/muhan/.cache/huggingface"
 
 os.environ["NCCL_DEBUG"] = "WARN"
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
@@ -777,6 +779,9 @@ class FSDPCPTTrainer(object):
                             if self.config.data.get("treat_eos_as_one", False)
                             else None
                         ),
+                        distribution=self.config.diffusion.noise_level_distribution,
+                        a=self.config.diffusion.beta_dist_a,
+                        b=self.config.diffusion.beta_dist_b,
                     )
                     loss_mask = loss_mask_nonflatten.reshape(-1)
 
@@ -830,6 +835,8 @@ class FSDPCPTTrainer(object):
                         weight = 1 / t[:, None].float().expand(labels.size())
                     elif self.config.diffusion.time_reweighting == "linear":
                         weight = 1 - t[:, None].float().expand(labels.size())
+                    elif self.config.diffusion.time_reweighting == "const":
+                        weight = torch.ones_like(t[:, None]).float().expand(labels.size())
                     elif self.config.diffusion.time_reweighting == "cart":
                         # seq_len = self.config.data.max_length
                         seq_len = input_ids.shape[-1]
@@ -858,8 +865,24 @@ class FSDPCPTTrainer(object):
                         "Sequence parallel is not implemented yet"
                     )
 
-                valid_token_this_rank = torch.sum(loss_mask)
-                loss = torch.sum(loss) / valid_token_this_rank
+                if self.config.diffusion.weight_eos:
+                    non_eos_mask = (shift_labels != self.tokenizer.eos_token_id) & loss_mask
+                    non_eos_loss = loss.clone()  
+                    non_eos_loss[~non_eos_mask] = 0  
+                    non_eos_count = non_eos_mask.sum().item() 
+                    non_eos_loss = non_eos_loss.sum()  
+
+                   
+                    eos_mask = (shift_labels == self.tokenizer.eos_token_id) & loss_mask
+                    eos_loss = loss.clone()  
+                    eos_loss[~eos_mask] = 0  
+                    eos_count = eos_mask.sum().item()  
+                    eos_loss = eos_loss.sum() / eos_count  
+
+                    loss = (non_eos_loss + eos_loss) / (non_eos_count + 1)  
+                else:
+                    valid_token_this_rank = torch.sum(loss_mask)
+                    loss = torch.sum(loss) / valid_token_this_rank 
 
                 if do_backward:
                     loss.backward()

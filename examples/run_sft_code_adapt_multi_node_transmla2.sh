@@ -25,11 +25,23 @@ NODE_RANK=$3
 
 LR=1e-5
 BATCH_SIZE=1024
-STEP=1000
+STEP=2000
 lr_scheduler=cosine
+time_reweighting=linear
+use_focal_loss=true
+noise_dist=Beta
+enable_cutoff=false
 
-save_path=outputs/dream_cpt_adapt_bs${BATCH_SIZE}_step${STEP}_${lr_scheduler}_lr${LR}
+# dataset_name=finemath_4plus_full_filtered
+# base_model_path=outputs/dream_transmla+math_cpt_adapt_bs1024_step2000_cosine_lr1e-5/global_step_2000
+# save_path=outputs/dream_transmla+math_linear_2000_${dataset_name}_${time_reweighting}_weight-eos-${weight_eos}_cpt_adapt_bs${BATCH_SIZE}_step${STEP}_${lr_scheduler}_lr${LR}
+dataset_name=transmla+math
+base_model_path=../huggingface/Dream-v0-Base-7B
+save_path=outputs/dream_${dataset_name}_${time_reweighting}_use_focal_${use_focal_loss}_noise_dist_${noise_dist}_enable_cutoff_${enable_cutoff}_cpt_adapt_bs${BATCH_SIZE}_step${STEP}_${lr_scheduler}_lr${LR}
+# save_path=outputs/dream_test
+# rm /data/muhan/.cache/huggingface -r
 exp_name=$(basename $save_path)
+killall python3.10
 
 # # Shift the arguments so $@ refers to the rest
 # shift 2
@@ -43,18 +55,18 @@ torchrun \
     --nproc-per-node=8 \
     --node_rank=$NODE_RANK \
     -m src.trainer.fsdp_cpt_trainer \
-    diffusion.time_reweighting=linear \
-    data.train_files=../datasets/opencoder-annealing-corpus-1M-samples/train_data.parquet \
-    data.val_files=../datasets/opencoder-annealing-corpus-1M-samples/eval_data.parquet \
+    diffusion.time_reweighting=${time_reweighting} \
+    data.train_files=../datasets/${dataset_name}/train_data.parquet \
+    data.val_files=../datasets/${dataset_name}/eval_data.parquet \
     data.max_length=1024 \
     data.truncation=right \
     optim.lr=$LR \
     optim.lr_scheduler=$lr_scheduler \
     data.micro_batch_size_per_gpu=8 \
     data.train_batch_size=$BATCH_SIZE \
-    +data.enable_perbatch_cutoff=True \
-    data.perbatch_cutoff=True \
-    model.partial_pretrain=../huggingface/Dream-Coder-v0-Base-7B \
+    +data.enable_perbatch_cutoff=${enable_cutoff} \
+    data.perbatch_cutoff=${enable_cutoff} \
+    model.partial_pretrain=${base_model_path} \
     model.trust_remote_code=True \
     model.enable_gradient_checkpointing=True \
     model.mask_free=True \
@@ -64,6 +76,9 @@ torchrun \
     trainer.default_local_dir=$save_path \
     trainer.total_epochs=1 \
     trainer.total_training_steps=$STEP \
+    trainer.save_checkpoint_steps=3000 \
+    diffusion.token_reweighting=${use_focal_loss} \
+    diffusion.noise_level_distribution=${noise_dist} \
     2>&1
     # trainer.save_checkpoint_steps=1 \
     # data.perbatch_cutoff_type=random_with_input_pad \

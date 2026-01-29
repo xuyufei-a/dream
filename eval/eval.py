@@ -20,6 +20,9 @@ from lm_eval.api.registry import register_model
 from lm_eval.models.utils import get_dtype
 from lm_eval.__main__ import cli_evaluate
 
+from modeling_dream.modeling_dream import DreamModel
+from modeling_dream_mask_free.modeling_dream import MaskFreeDreamModel
+
 eval_logger = logging.getLogger(__name__)
 T = TypeVar("T", bound="LM")
 
@@ -49,6 +52,7 @@ class Dream(LM):
         alg: Optional[str] = "entropy",
         alg_temp: Optional[float] = 0.0,
         escape_until: Optional[bool] = False,
+        mask_free: Optional[bool] = False,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -57,6 +61,8 @@ class Dream(LM):
         assert isinstance(device, str)
         assert isinstance(pretrained, str)
         assert isinstance(batch_size, (int, str))
+
+        self.mask_free = mask_free
 
         gpus = torch.cuda.device_count()
         accelerator_kwargs = InitProcessGroupKwargs(timeout=timedelta(weeks=52))
@@ -195,14 +201,29 @@ class Dream(LM):
         return self._world_size
 
     def _create_model_and_tokenizer(self, pretrained, dtype, trust_remote_code):
-        self.model = (
-            transformers.AutoModel.from_pretrained(
-                pretrained,
-                torch_dtype=get_dtype(dtype),
-                trust_remote_code=trust_remote_code,
-            )
-            .eval()
-        ).to(self.device)
+        print('initialize model with dtype ', dtype)
+        if self.mask_free:
+            assert 'adapt' in pretrained or 'mask-free' in pretrained
+            self.model = (
+                MaskFreeDreamModel.from_pretrained(
+                    pretrained,
+                    torch_dtype=get_dtype(dtype),
+                    trust_remote_code=trust_remote_code,
+                )
+                .eval()
+            ).to(self.device)
+        else:
+            assert 'base' in pretrained or 'Base' in pretrained
+            self.model = (
+                DreamModel.from_pretrained(
+                    pretrained,
+                    torch_dtype=get_dtype(dtype),
+                    trust_remote_code=trust_remote_code,
+                )
+                .eval()
+            ).to(self.device)
+        print(type(self.model))
+        print(self.model.dtype)
 
         self.tokenizer = transformers.AutoTokenizer.from_pretrained(
             pretrained, trust_remote_code=trust_remote_code
@@ -279,6 +300,12 @@ class Dream(LM):
             alg=self.alg,
             alg_temp=self.alg_temp,
         )
+
+        # responses = [
+        #     self.tokenizer.decode(g[len(p) :].tolist(), ignore_special_tokens=False)
+        #     for p, g in zip(prompt_ids, generation_ids.sequences)
+        # ]
+        # print(responses)
 
         # decode
         responses = [
@@ -482,17 +509,20 @@ class Dream(LM):
         def _tokenize(e):
             prefix, target = self._encode_pair(e["prefix"], e["target"])
             return {
-                "prefix_text": e["prefix"],
-                "target_text": e["target"],
+                # "prefix_text": e["prefix"],
+                # "target_text": e["target"],
                 "prefix": prefix,
                 "target": target,
             }
 
         ds = []
         ds = [{"prefix": req.args[0], "target": req.args[1]} for req in requests]
-        ds = Dataset.from_list(ds)
+        print(len(ds))
         print(ds[0])
-        ds = ds.map(_tokenize)
+        ds = [_tokenize(d) for d in  ds]
+        print('after tokenize')
+        ds = Dataset.from_list(ds)
+        # ds = ds.map(_tokenize)
         ds = ds.with_format("torch")
 
         out = []

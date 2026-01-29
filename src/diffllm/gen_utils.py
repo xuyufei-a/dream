@@ -11,13 +11,24 @@ def q_sample(
     eos_token_id=None,
     t=None,
     t_mask=None,
+    distribution: str = "uniform",
+    a: float = None,
+    b: float = None,
 ):
     x_0 = input_ids
 
     if t_mask is None:
         if t is None:
-            t = torch.rand((x_0.shape[0],), dtype=torch.float, device=input_ids.device)
-            t = min + (max - min) * t
+            if distribution == "uniform":
+                t = torch.rand((x_0.shape[0],), dtype=torch.float, device=input_ids.device)
+                t = min + (max - min) * t
+            elif distribution == "Beta":
+                assert a is not None and b is not None, "a and b must be provided for Beta distribution"
+                t = torch.distributions.Beta(a, b).sample((x_0.shape[0],)).to(input_ids.device)
+                t = min + (max - min) * t
+            else:
+                raise ValueError(f"Unsupported distribution: {distribution}")
+
         u = torch.rand_like(x_0, dtype=torch.float)  # t/T prob to mask
         t_mask = (u < t[:, None]) & maskable_mask
 

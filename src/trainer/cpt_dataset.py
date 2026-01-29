@@ -104,7 +104,7 @@ class CPTDataset(Dataset):
     @staticmethod
     def _tokenize_static(example, tokenizer, text_key, max_length, truncation, pad_token_id):
         text = example[text_key]
-        # text = text + tokenizer.eos_token
+        text = text + tokenizer.eos_token
 
         encoding = tokenizer(
             text,
@@ -175,10 +175,10 @@ class CPTDataset(Dataset):
         data = self._tokenize(example)
 
         return {
-            "input_ids": torch.tensor(data["input_ids"]),
-            "attention_mask": torch.tensor(data["attention_mask"]),
-            "position_ids": torch.tensor(data["position_ids"]),
-            "loss_mask": torch.tensor(data["loss_mask"]),
+            "input_ids": torch.tensor(data["input_ids"], dtype=torch.long),
+            "attention_mask": torch.tensor(data["attention_mask"], dtype=torch.long),
+            "position_ids": torch.tensor(data["position_ids"], dtype=torch.long),
+            "loss_mask": torch.tensor(data["loss_mask"], dtype=torch.long),
         }
 
     def save_tokenized(self, path, num_proc=16):

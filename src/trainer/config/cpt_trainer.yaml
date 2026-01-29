@@ -54,8 +54,12 @@ trainer:
   seed: 1
   save_checkpoint_steps: 200
 diffusion:
+  weight_eos: false
   token_reweighting: false  # use focal loss for token-level reweighting
   alpha: 0.25  # for focal loss
   gamma: 2  # for focal loss
   time_reweighting: original  # time-level reweighting strategy
   cart_p: 0.1
+  noise_level_distribution: uniform
+  beta_dist_a: 2.0
+  beta_dist_b: 1.0
