@@ -353,7 +353,8 @@ class DreamSdpaAttention(DreamAttention):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
+        teacher_attention_mask: Optional[torch.Tensor] = None,
+        student_attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Cache] = None,
         output_attentions: bool = False,
@@ -363,18 +364,12 @@ class DreamSdpaAttention(DreamAttention):
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         if output_attentions:
             # TODO: Improve this warning with e.g. `model.config.attn_implementation = "manual"` once this is implemented.
-            logger.warning_once(
-                "DreamModel is using DreamSdpaAttention, but `torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to the manual attention implementation, "
-                'but specifying the manual implementation will be required from Transformers version v5.0.0 onwards. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.'
-            )
-            return super().forward(
-                hidden_states=hidden_states,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                past_key_value=past_key_value,
-                output_attentions=output_attentions,
-                use_cache=use_cache,
-            )
+            raise NotImplementedError(
+                "Outputting attentions is not supported for SDPA attention at the moment. Please set "
+                "`config._attn_implementation` to another value such as 'manual' to enable this feature."
+            ) 
+        if teacher_attention_mask is None or student_attention_mask is None:
+            raise ValueError("Both `teacher_attention_mask` and `student_attention_mask` must be provided.")
 
         bsz, q_len, _ = hidden_states.size()
 
@@ -411,7 +406,7 @@ class DreamSdpaAttention(DreamAttention):
 
         # SDPA with memory-efficient backend is currently (torch==2.1.2) bugged with non-contiguous inputs with custom attn_mask,
         # Reference: https://github.com/pytorch/pytorch/issues/112577.
-        if query_states.device.type == "cuda" and attention_mask is not None:
+        if query_states.device.type == "cuda":
             query_states = query_states.contiguous()
             key_states = key_states.contiguous()
             value_states = value_states.contiguous()
@@ -421,21 +416,34 @@ class DreamSdpaAttention(DreamAttention):
         # The q_len > 1 is necessary to match with AttentionMaskConverter.to_causal_4d that does not create a causal mask in case q_len == 1.
         # is_causal = True if causal_mask is None and q_len > 1 else False
 
-        attn_output = torch.nn.functional.scaled_dot_product_attention(
+        teacher_attn_output = torch.nn.functional.scaled_dot_product_attention(
             query_states,
             key_states,
             value_states,
-            attn_mask=attention_mask if isinstance(attention_mask, torch.Tensor) else None,
+            attn_mask=teacher_attention_mask,
             dropout_p=self.attention_dropout if self.training else 0.0,
             is_causal=False, # hard coded
         )
+        teacher_attn_output = teacher_attn_output.transpose(1, 2).contiguous()
+        teacher_attn_output = teacher_attn_output.view(bsz, q_len, self.hidden_size)
+        teacher_attn_output = self.o_proj(teacher_attn_output)
 
-        attn_output = attn_output.transpose(1, 2).contiguous()
-        attn_output = attn_output.view(bsz, q_len, self.hidden_size)
+        student_attn_output = torch.nn.functional.scaled_dot_product_attention(
+            query_states,
+            key_states,
+            value_states,
+            attn_mask=student_attention_mask,
+            dropout_p=self.attention_dropout if self.training else 0.0,
+            is_causal=False, # hard coded
+        )
+        student_attn_output = student_attn_output.transpose(1, 2).contiguous()
+        student_attn_output = student_attn_output.view(bsz, q_len, self.hidden_size)
+        student_attn_output = self.o_proj(student_attn_output)
 
-        attn_output = self.o_proj(attn_output)
+        distil_loss_func = nn.MSELoss()
+        distil_loss = distil_loss_func(student_attn_output, teacher_attn_output)
 
-        return attn_output, None, past_key_value
+        return teacher_attn_output, None, past_key_value, distil_loss
 
 
 class DreamDecoderLayer(nn.Module):
@@ -459,7 +467,8 @@ class DreamDecoderLayer(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
+        teacher_attention_mask: Optional[torch.Tensor] = None,
+        student_attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
         output_attentions: Optional[bool] = False,
@@ -495,9 +504,10 @@ class DreamDecoderLayer(nn.Module):
         hidden_states = self.input_layernorm(hidden_states)
 
         # Self Attention
-        hidden_states, self_attn_weights, present_key_value = self.self_attn(
+        hidden_states, self_attn_weights, present_key_value, distil_loss = self.self_attn(
             hidden_states=hidden_states,
-            attention_mask=attention_mask,
+            teacher_attention_mask=teacher_attention_mask,
+            student_attention_mask=student_attention_mask,
             position_ids=position_ids,
             past_key_value=past_key_value,
             output_attentions=output_attentions,
@@ -521,6 +531,7 @@ class DreamDecoderLayer(nn.Module):
         if use_cache:
             outputs += (present_key_value,)
 
+        outputs += (distil_loss,)
         return outputs
 
 class DreamPreTrainedModel(PreTrainedModel):
@@ -633,7 +644,8 @@ class DreamBaseModel(DreamPreTrainedModel):
     def forward(
         self,
         input_ids: torch.LongTensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
+        teacher_attention_mask: Optional[torch.Tensor] = None,
+        student_attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[List[torch.FloatTensor]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
@@ -685,6 +697,7 @@ class DreamBaseModel(DreamPreTrainedModel):
         all_hidden_states = () if output_hidden_states else None
         all_self_attns = () if output_attentions else None
 
+        distil_loss = []
         for decoder_layer in self.layers:
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
@@ -693,7 +706,8 @@ class DreamBaseModel(DreamPreTrainedModel):
                 layer_outputs = self._gradient_checkpointing_func(
                     decoder_layer.__call__,
                     hidden_states,
-                    attention_mask,
+                    teacher_attention_mask,
+                    student_attention_mask,
                     position_ids,
                     past_key_values,
                     output_attentions,
@@ -704,7 +718,8 @@ class DreamBaseModel(DreamPreTrainedModel):
             else:
                 layer_outputs = decoder_layer(
                     hidden_states,
-                    attention_mask=attention_mask,
+                    teacher_attention_mask=teacher_attention_mask,
+                    student_attention_mask=student_attention_mask,
                     position_ids=position_ids,
                     past_key_value=past_key_values,
                     output_attentions=output_attentions,
@@ -718,6 +733,9 @@ class DreamBaseModel(DreamPreTrainedModel):
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
 
+            distil_loss.append(layer_outputs[-1])
+        distil_loss = torch.stack(distil_loss).mean()
+
         hidden_states = self.norm(hidden_states)
 
         # add hidden states from the last decoder layer
@@ -725,12 +743,12 @@ class DreamBaseModel(DreamPreTrainedModel):
             all_hidden_states += (hidden_states,)
 
         if not return_dict:
-            return tuple(v for v in [hidden_states, all_hidden_states, all_self_attns] if v is not None)
+            return tuple(v for v in [hidden_states, all_hidden_states, all_self_attns, distil_loss] if v is not None)
         return BaseModelOutput(
             last_hidden_state=hidden_states,
             hidden_states=all_hidden_states,
             attentions=all_self_attns,
-        )
+        ), distil_loss
 
 
 class DreamModel(DreamGenerationMixin, DreamPreTrainedModel):
@@ -771,7 +789,8 @@ class DreamModel(DreamGenerationMixin, DreamPreTrainedModel):
     def forward(
         self,
         input_ids: torch.LongTensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
+        teacher_attention_mask: Optional[torch.Tensor] = None,
+        student_attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[List[torch.FloatTensor]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
@@ -791,9 +810,10 @@ class DreamModel(DreamGenerationMixin, DreamPreTrainedModel):
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
-        outputs = self.model(
+        outputs, distil_loss = self.model(
             input_ids=input_ids,
-            attention_mask=attention_mask,
+            teacher_attention_mask=teacher_attention_mask,
+            student_attention_mask=student_attention_mask,
             position_ids=position_ids,
             past_key_values=past_key_values,
             inputs_embeds=inputs_embeds,
@@ -821,4 +841,4 @@ class DreamModel(DreamGenerationMixin, DreamPreTrainedModel):
             logits=logits,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
-        )
+        ),  distil_loss

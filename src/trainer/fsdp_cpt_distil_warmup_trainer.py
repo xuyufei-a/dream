@@ -63,6 +63,7 @@ from verl.utils.tracking import Tracking
 from src.diffllm.gen_utils import q_sample
 from src.trainer.cpt_dataset import CPTDataset, TokenizedCPTDataset
 from src.trainer.AR_utils import create_temporal_mask_wrapper
+from src.trainer.models.modeling_dream_for_distil_warmup import DreamModel as DreamForDistilWarmup
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
@@ -570,7 +571,15 @@ class FSDPCPTTrainer(object):
         )
 
         with init_context():
-            self.model: PreTrainedModel = AutoModel.from_pretrained(
+            # self.model: PreTrainedModel = AutoModel.from_pretrained(
+            #     local_model_path,
+            #     config=config,
+            #     torch_dtype=torch.float32,
+            #     attn_implementation="flash_attention_2",
+            #     trust_remote_code=trust_remote_code,
+            # )
+            print('for distil warmup, using dream for distil warmup')
+            self.model = DreamForDistilWarmup.from_pretrained(
                 local_model_path,
                 config=config,
                 torch_dtype=torch.float32,
@@ -792,7 +801,11 @@ class FSDPCPTTrainer(object):
                             attention_mask.unsqueeze(1).unsqueeze(-1),
                         )
                     else:
-                        attention_mask = create_temporal_mask_wrapper(
+                        teacher_attention_mask = torch.logical_and(
+                            attention_mask.unsqueeze(1).unsqueeze(-2),
+                            attention_mask.unsqueeze(1).unsqueeze(-1),
+                        )
+                        student_attention_mask = create_temporal_mask_wrapper(
                             input_ids=masked_input_ids,
                             attention_mask=attention_mask,
                             mask_token_id=self.tokenizer.mask_token_id,
@@ -802,9 +815,10 @@ class FSDPCPTTrainer(object):
                             block_length=1
                         )
 
-                    output = self.fsdp_model(
+                    output, distil_loss = self.fsdp_model(
                         input_ids=masked_input_ids,
-                        attention_mask=attention_mask,
+                        teacher_attention_mask=teacher_attention_mask,
+                        student_attention_mask=student_attention_mask,
                         position_ids=position_ids,
                         use_cache=False,
                     )
@@ -886,6 +900,7 @@ class FSDPCPTTrainer(object):
                     valid_token_this_rank = torch.sum(loss_mask)
                     loss = torch.sum(loss) / valid_token_this_rank 
 
+                loss += distil_loss * self.config.diffusion.distil_loss_weight
                 if do_backward:
                     loss.backward()
 
@@ -895,6 +910,7 @@ class FSDPCPTTrainer(object):
                             "return_token_infos is only supported when weight_eos is True"
                         )
                     return loss, {
+                        'distil_loss': distil_loss.detach().item(),
                         'non_eos_loss': non_eos_loss.detach().item(),
                         'non_eos_count': non_eos_count,
                         'eos_loss': eos_loss.detach().item(),
@@ -1206,7 +1222,7 @@ class FSDPCPTTrainer(object):
             self.save_checkpoint(step=global_step)
 
 
-@hydra.main(config_path="config", config_name="cpt_trainer", version_base=None)
+@hydra.main(config_path="config", config_name="cpt_distil_warmup_trainer", version_base=None)
 def main(config):
     local_rank, rank, world_size = initialize_global_process_group()
 
