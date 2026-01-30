@@ -9,7 +9,7 @@ temperatures="0 0.2 0 0"
 # lengths="512 512"
 # temperatures="0 0"
 
-model=/data5/xyf/Dream/outputs/dream_transmla+math_const_weight-eos-false_cpt_adapt_bs1024_step2000_cosine_lr1e-5/global_step_2000
+model=/data5/xyf/Dream/outputs/dream_transmla+math_linear_use_focal_false_noise_dist_Beta_cpt_adapt_bs1024_step2000_cosine_lr1e-5/global_step_2000
 mask_free=True
 # Create arrays from space-separated strings
 read -ra TASKS_ARRAY <<< "$tasks"

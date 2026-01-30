@@ -739,7 +739,7 @@ class FSDPCPTTrainer(object):
         self.current_epoch = epoch
         return global_step
 
-    def _compute_loss_and_backward(self, batch, do_backward=True):
+    def _compute_loss_and_backward(self, batch, do_backward=True, return_token_infos=False):
         """Compute loss with optional sequence parallelism and remove padding features"""
         use_sp = (
             self.use_remove_padding and self.config.ulysses_sequence_parallel_size > 1
@@ -877,6 +877,8 @@ class FSDPCPTTrainer(object):
                     eos_loss = loss.clone()  
                     eos_loss[~eos_mask] = 0  
                     eos_count = eos_mask.sum().item()  
+                    if eos_count == 0:
+                        eos_count = 1
                     eos_loss = eos_loss.sum() / eos_count  
 
                     loss = (non_eos_loss + eos_loss) / (non_eos_count + 1)  
@@ -886,7 +888,22 @@ class FSDPCPTTrainer(object):
 
                 if do_backward:
                     loss.backward()
-                return loss
+
+                if return_token_infos:
+                    if not self.config.diffusion.weight_eos:
+                        raise NotImplementedError(
+                            "return_token_infos is only supported when weight_eos is True"
+                        )
+                    return loss, {
+                        'non_eos_loss': non_eos_loss.detach().item(),
+                        'non_eos_count': non_eos_count,
+                        'eos_loss': eos_loss.detach().item(),
+                        'eos_count': eos_count,
+                        'mask_token_count': (~loss_mask).sum().item(),
+                        'token_count': loss_mask.numel(),
+                    }
+                else:
+                    return loss
 
     def training_step(self, batch: TensorDict):
         self.fsdp_model.train()
@@ -901,10 +918,8 @@ class FSDPCPTTrainer(object):
         n_micro_batches = len(micro_batches)
         step_loss = 0
         for micro_batch in micro_batches:
-            loss = (
-                self._compute_loss_and_backward(batch=micro_batch, do_backward=False)
-                / n_micro_batches
-            )
+            loss, token_info_dict = self._compute_loss_and_backward(batch=micro_batch, do_backward=False, return_token_infos=True)
+            loss = loss / n_micro_batches
             loss.backward()
             step_loss += loss.item()
 
@@ -943,6 +958,7 @@ class FSDPCPTTrainer(object):
             "train/grad_norm": grad_norm,
             "train/num_eos_mean": all_num_eos.float().mean().item(),
             "train/num_eos_max": all_num_eos.float().max().item(),
+            **{f"train/{k}": v for k, v in token_info_dict.items()},
         }
 
     def validation_step(self, batch: TensorDict):

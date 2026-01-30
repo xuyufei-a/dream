@@ -104,7 +104,7 @@ class CPTDataset(Dataset):
     @staticmethod
     def _tokenize_static(example, tokenizer, text_key, max_length, truncation, pad_token_id):
         text = example[text_key]
-        text = text + tokenizer.eos_token
+        # text = text + tokenizer.eos_token
 
         encoding = tokenizer(
             text,

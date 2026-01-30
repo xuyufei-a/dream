@@ -29,15 +29,13 @@ STEP=2000
 lr_scheduler=cosine
 time_reweighting=linear
 use_focal_loss=true
-noise_dist=Beta
-enable_cutoff=false
+noise_dist=uniform
+enable_cutoff=true
+weight_eos=true
 
-# dataset_name=finemath_4plus_full_filtered
-# base_model_path=outputs/dream_transmla+math_cpt_adapt_bs1024_step2000_cosine_lr1e-5/global_step_2000
-# save_path=outputs/dream_transmla+math_linear_2000_${dataset_name}_${time_reweighting}_weight-eos-${weight_eos}_cpt_adapt_bs${BATCH_SIZE}_step${STEP}_${lr_scheduler}_lr${LR}
 dataset_name=transmla+math
 base_model_path=../huggingface/Dream-v0-Base-7B
-save_path=outputs/dream_${dataset_name}_${time_reweighting}_use_focal_${use_focal_loss}_noise_dist_${noise_dist}_enable_cutoff_${enable_cutoff}_cpt_adapt_bs${BATCH_SIZE}_step${STEP}_${lr_scheduler}_lr${LR}
+save_path=outputs/dream_${dataset_name}_${time_reweighting}_use_focal_${use_focal_loss}_noise_dist_${noise_dist}_enable_cutoff_${enable_cutoff}_cpt_adapt_bs${BATCH_SIZE}_step${STEP}_${lr_scheduler}_lr${LR}_weight_eos_${weight_eos}
 # save_path=outputs/dream_test
 # rm /data/muhan/.cache/huggingface -r
 exp_name=$(basename $save_path)
@@ -79,6 +77,7 @@ torchrun \
     trainer.save_checkpoint_steps=3000 \
     diffusion.token_reweighting=${use_focal_loss} \
     diffusion.noise_level_distribution=${noise_dist} \
+    diffusion.weight_eos=${weight_eos} \
     2>&1
     # trainer.save_checkpoint_steps=1 \
     # data.perbatch_cutoff_type=random_with_input_pad \
