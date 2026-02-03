@@ -25,7 +25,7 @@ NODE_RANK=$3
 
 LR=1e-5
 BATCH_SIZE=1024
-STEP=2000
+STEP=4000
 lr_scheduler=cosine
 time_reweighting=linear
 use_focal_loss=false

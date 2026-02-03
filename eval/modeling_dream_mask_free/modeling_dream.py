@@ -743,7 +743,11 @@ class MaskFreeDreamModel(DreamGenerationMixin, DreamPreTrainedModel):
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         
         from transformers import AutoTokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained("Dream-org/Dream-v0-Base-7B", trust_remote_code=True)
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained("Dream-org/Dream-v0-Base-7B", trust_remote_code=True)
+        except Exception as e:
+            print(e)
+            self.tokenizer = AutoTokenizer.from_pretrained("/data5/xyf/huggingface/Dream-v0-Base-7B", trust_remote_code=True)
         self.mask_token_id = self.tokenizer.mask_token_id
 
         # Initialize weights and apply final processing

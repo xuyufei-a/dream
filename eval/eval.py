@@ -203,7 +203,7 @@ class Dream(LM):
     def _create_model_and_tokenizer(self, pretrained, dtype, trust_remote_code):
         print('initialize model with dtype ', dtype)
         if self.mask_free:
-            assert 'adapt' in pretrained or 'mask-free' in pretrained
+            assert 'adapt' in pretrained or 'mask-free' in pretrained or 'distil' in pretrained
             self.model = (
                 MaskFreeDreamModel.from_pretrained(
                     pretrained,
@@ -213,7 +213,7 @@ class Dream(LM):
                 .eval()
             ).to(self.device)
         else:
-            assert 'base' in pretrained or 'Base' in pretrained
+            assert 'base' in pretrained or 'Base' in pretrained or 'distil' in pretrained
             self.model = (
                 DreamModel.from_pretrained(
                     pretrained,

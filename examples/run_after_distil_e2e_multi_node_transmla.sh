@@ -34,8 +34,8 @@ enable_cutoff=true
 weight_eos=true
 
 dataset_name=transmla+math_2in2
-base_model_path=../huggingface/Dream-v0-Base-7B
-save_path=outputs/dream_${dataset_name}_${time_reweighting}_use_focal_${use_focal_loss}_noise_dist_${noise_dist}_enable_cutoff_${enable_cutoff}_cpt_adapt_bs${BATCH_SIZE}_step${STEP}_${lr_scheduler}_lr${LR}_weight_eos_${weight_eos}
+base_model_path=/data5/xyf/Dream/outputs/distil_warmup_dream_1_transmla+math_1in2_linear_use_focal_false_noise_dist_uniform_enable_cutoff_true_bs1024_step2000_cosine_lr1e-5_weight_eos_true/global_step_2000
+save_path=outputs/dream_warmup_2000+e2e_2000_${dataset_name}_${time_reweighting}_use_focal_${use_focal_loss}_noise_dist_${noise_dist}_enable_cutoff_${enable_cutoff}_cpt_adapt_bs${BATCH_SIZE}_step${STEP}_${lr_scheduler}_lr${LR}_weight_eos_${weight_eos}
 # save_path=outputs/dream_test
 # rm /data/muhan/.cache/huggingface -r
 exp_name=$(basename $save_path)
